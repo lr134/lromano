@@ -300,6 +300,35 @@ corn_sim_classes <- left_join(x = corn_sim_clean,y = RAIN_ALL, by = c("YEAR","Lo
 ```
 
 
+## 6.1) Figure helper
+
+```{r figure-helper}
+emit_figure <- function(plot_obj,
+                        caption,
+                        save_path = NULL,
+                        width = 9,
+                        height = 4,
+                        dpi = 300,
+                        device = "tiff") {
+  old_cap <- knitr::opts_current$get("fig.cap")
+  on.exit(knitr::opts_current$set(fig.cap = old_cap), add = TRUE)
+
+  knitr::opts_current$set(fig.cap = caption)
+  print(plot_obj)
+
+  if (!is.null(save_path)) {
+    ggsave(
+      filename = save_path,
+      plot = plot_obj,
+      width = width,
+      height = height,
+      dpi = dpi,
+      device = device
+    )
+  }
+}
+```
+
 ## 7) Year-by-year yield advantage (LT-1.8 vs Check)
 
 ```{r}
@@ -344,15 +373,21 @@ analyze_site_lt18 <- function(site_name) {
       y = "Yield increase (%)",
       colour = "Rain Class"
     ) +
-    theme_minimal(base_size = 12)
-  
-  print(p)
-  
+    theme_bw(base_size = 13) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "top",
+      strip.background = element_rect(fill = "grey90"),
+      strip.text = element_text(face = "bold")
+    )
+
   output_dir <- "/Users/lucasromano/Desktop/Crop Modeling/Corn SSM/graphs, tables and diagrams"
   file_stub <- gsub(" ", "", site_name)
-  ggsave(
-    filename = file.path(output_dir, paste0(file_stub, "_RFD_LT18_vs_Check.tiff")),
-    p,
+
+  emit_figure(
+    plot_obj = p,
+    caption = paste0(site_name, ": LT-1.8 vs Check (% yield increase by year, rain class)"),
+    save_path = file.path(output_dir, paste0(file_stub, "_RFD_LT18_vs_Check.tiff")),
     width = 7,
     height = 4,
     dpi = 300,
@@ -425,10 +460,16 @@ plot_yield_summary <- function(location_data, location_name, filename) {
     theme_bw()
 
   # Save and display
-  ggsave(file.path(output_dir, filename), p, width = 9, height = 6, dpi = 300, device = "tiff")
-  print(p)
+  emit_figure(
+    plot_obj = p,
+    caption = paste("Yield across BP and Water Management in", location_name),
+    save_path = file.path(output_dir, filename),
+    width = 9,
+    height = 6,
+    dpi = 300,
+    device = "tiff"
+  )
 }
-
 # ---- EXAMPLE: Norfolk Yield Plot ----
 plot_yield_summary(norfolk_data, "Norfolk", "YxBPxWM_Norfolk.tiff")
 plot_yield_summary(jonesboro_data, "Jonesboro", "YxBPxWM_Jonesboro.tiff")
@@ -476,7 +517,7 @@ build_wue_plot <- function(data, water_mode, crop_ids, plot_title, color_var = N
     labs(
       title = plot_title,
       x = "Cumulative Transpiration (mm)",
-      y = "Grain Yield (kg ha⁻¹)"
+      y = "Grain Yield (kg ha-1)"
     ) +
     theme_bw(base_size = 13) +
     theme(
@@ -500,7 +541,7 @@ save_wue_plot <- function(plot_obj, filename) {
 ```
 
 # ---- WUE: all scenarios using one loop ----
-```{r wue-scenarios}
+```{r wue-scenarios, fig.width=9, fig.height=4, dpi=300}
 wue_scenarios <- list(
   list(
     obj_name = "WUE_AR_Irrigated",
@@ -508,7 +549,7 @@ wue_scenarios <- list(
     water_mode = "Irrigated",
     crop_ids = c("Maize-AR-check", "Maize-AR-LT-1.8"),
     title = "Yield Response to Cumulative Transpiration in Arkansas (Irrigated)",
-    color_var = "Crop",
+    color_var = NULL,
     file_name = "WUE_AR_Irrigated.tiff"
   ),
   list(
@@ -550,10 +591,13 @@ for (scenario in wue_scenarios) {
     plot_title = scenario$title,
     color_var = scenario$color_var
   )
-
   assign(scenario$obj_name, wue_plot)
   save_wue_plot(wue_plot, file.path(output_dir, scenario$file_name))
+  print(wue_plot)
 }
+
+# Reset caption option after loop
+knitr::opts_current$set(fig.cap = NULL)
 ```
 
 
@@ -679,9 +723,9 @@ stability_scenarios <- list(
     g1 = "Maize-AR-check",
     g2 = "Maize-AR-LT-1.8",
     label_map = c("Maize-AR-check" = "Check", "Maize-AR-LT-1.8" = "LT 1.8"),
-    style = "poster",
-    palette = c("Check" = "#7570b3", "LT 1.8" = "#d95f02"),
-    title = "Yield stability across 30 years\nArkansas · Rainfed management",
+    style = "basic",
+    palette = NULL,
+    title = "Yield stability across 30 years in Arkansas, Rainfed",
     file_name = "Ystab_AR_rfd_poster.tiff",
     width = 10,
     height = 6,
@@ -692,10 +736,10 @@ stability_scenarios <- list(
     water_mode = "Irrigated",
     g1 = "Maize-AR-check",
     g2 = "Maize-AR-LT-1.8",
-    label_map = NULL,
+    label_map = c("Maize-AR-check" = "Check", "Maize-AR-LT-1.8" = "LT 1.8"),
     style = "basic",
     palette = NULL,
-    title = "Yield stability across 30 years, in Arkansas, Irrigated",
+    title = "Yield stability across 30 years in Arkansas, Irrigated",
     file_name = "Ystab_AR_irri.tiff",
     width = 9,
     height = 4,
@@ -706,10 +750,10 @@ stability_scenarios <- list(
     water_mode = "Rainfed",
     g1 = "Maize-NE-check",
     g2 = "Maize-NE-LT-1.8",
-    label_map = NULL,
+    label_map = c("Maize-NE-check" = "Check", "Maize-NE-LT-1.8" = "LT 1.8"),
     style = "basic",
     palette = NULL,
-    title = "Yield stability across 30 years, in Nebraska, Rainfed",
+    title = "Yield stability across 30 years in Nebraska, Rainfed",
     file_name = "Ystab_NE_rfd.tiff",
     width = 9,
     height = 4,
@@ -721,13 +765,13 @@ stability_scenarios <- list(
     g1 = "Maize-NE-check",
     g2 = "Maize-NE-LT-1.8",
     label_map = c("Maize-NE-check" = "Check", "Maize-NE-LT-1.8" = "LT 1.8"),
-    style = "poster",
-    palette = c("Check" = "#0072B2", "LT 1.8" = "#E69F00"),
-    title = "Yield stability across 30 years\nNebraska · Irrigated management",
-    file_name = "Ystab_NE_irri_poster.tiff",
-    width = 10,
-    height = 5,
-    dpi = 600
+    style = "basic",
+    palette = NULL,
+    title = "Yield stability across 30 years in Nebraska, Irrigated",
+    file_name = "Ystab_NE_irri.tiff",
+    width = 9,
+    height = 4,
+    dpi = 300
   )
 )
 
@@ -758,4 +802,6 @@ for (scenario in stability_scenarios) {
   print(stab_plot)
 }
 ```
+
+
 
