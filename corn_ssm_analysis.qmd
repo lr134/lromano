@@ -1,0 +1,761 @@
+---
+title: "Corn Simulation Data Analysis"
+subtitle: "Exploring yield and water use efficiency across genotypes, planting dates, and water management scenarios"
+author: "Lucas Romano"
+format: pdf
+---
+
+## 1) Data import and setup
+
+Load necessary libraries and import the corn simulation data from the Excel file.
+```{r}
+library(tidyverse)
+library(knitr)
+library(stringr)
+library(readxl)
+# Load the corn simulation data
+corn_sim <- read_excel(
+  '/Users/lucasromano/Desktop/Crop Modeling/Corn SSM/ssm-model/SSM_iCrop_Maize_realbps.xlsm',
+   sheet = "corn_sim")
+```
+
+## 2) Data cleaning and feature engineering
+
+Cleaning and preparing the data.
+```{r data-cleaning}
+corn_sim_clean <- corn_sim %>%
+  rename(YEAR = Pyear) %>%
+  dplyr::select(-c(R2.BOT, R3.EAR, R4.ANT, R5.BSG, R6.TSG))  %>% 
+  dplyr::select(-NLF:-CNDNIT) %>%
+  mutate(
+    # Categorize water management from Management column
+    water_mgmt = case_when(
+      str_detect(Manag, "RFD") ~ "Rainfed",
+      str_detect(Manag, "IRRI") ~ "Irrigated",
+      TRUE ~ "Unknown"
+    ),
+    # Extract VPD response: Check vs LT (Limited Transpiration) genotypes
+    vpd_response = case_when(
+      str_detect(Crop, regex("check", ignore_case = TRUE)) ~ "Check",
+      str_detect(Crop, regex("LT", ignore_case = TRUE)) ~ "LT"
+    ),
+    # Categorize planting date from scenario name
+    Planting_date = case_when(
+      str_detect(sName, "ELY") ~ "Early",
+      str_detect(sName, "MID") ~ "Medium",
+      str_detect(sName, "LTE") ~ "Late",
+      TRUE ~ "Unknown"
+    ),
+    # Calculate water loss (runoff + evaporation + transpiration + drainage)
+    WLOSS = CRUNOF + CE + CTR + CDRAIN,
+    # Convert grain yield to kg/ha (WGRN is in smaller units)
+    Yield_kgha = WGRN * 10,
+    # Calculate Water Use Efficiency (yield per unit transpiration)
+    WUE = Yield_kgha / ET,
+    # Assign state based on location
+    State = case_when(
+      Location %in% c("Marianna", "Jonesboro", "Stuttgart") ~ "Arkansas",
+      Location %in% c("Norfolk", "Lincoln", "North Platte") ~ "Nebraska",
+      TRUE ~ "Other"
+    )
+  ) 
+```
+
+## 3) Data subsets
+
+Data subsets for rainfed and irrigated scenarios.
+```{r}
+rainfed_data <- corn_sim_clean %>%
+  filter(water_mgmt == "Rainfed")
+
+irrigated_data <- corn_sim_clean %>%
+  filter(water_mgmt == "Irrigated")
+```
+
+Data subsets for early, medium, and late planting dates.
+```{r}
+early_planting <- corn_sim_clean %>%
+  filter(Planting_date == "Early")
+medium_planting <- corn_sim_clean %>%
+  filter(Planting_date == "Medium")
+late_planting <- corn_sim_clean %>%
+  filter(Planting_date == "Late")
+```
+
+Data subsets for Check and LT genotypes.
+```{r}
+check_genotypes <- corn_sim_clean %>%
+  filter(vpd_response == "Check")
+lt_genotypes <- corn_sim_clean %>%
+  filter(vpd_response == "LT")
+```
+
+Data subsets for locations in Arkansas and Nebraska.
+```{r}
+marianna_data <- corn_sim_clean %>%
+  filter(Location == "Marianna")
+
+jonesboro_data <- corn_sim_clean %>%
+  filter(Location == "Jonesboro")
+
+stuttgart_data <- corn_sim_clean %>%
+  filter(Location == "Stuttgart")
+
+norfolk_data <- corn_sim_clean %>%
+  filter(Location == "Norfolk")
+
+lincoln_data <- corn_sim_clean %>%
+  filter(Location == "Lincoln")
+
+north_platte_data <- corn_sim_clean %>%
+  filter(Location == "North Platte")
+```
+
+## 4) Exploratory summaries and baseline comparisons
+
+Rainfed scenarios. 
+```{r}
+# Summary statistics for yield and water use efficiency by water
+# management and planting date
+summary_stats <- corn_sim_clean %>%
+  group_by(water_mgmt, Planting_date) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    sd_yield = sd(Yield_kgha, na.rm = TRUE),
+    mean_wue = mean(WUE, na.rm = TRUE),
+    sd_wue = sd(WUE, na.rm = TRUE)
+  )
+kable(
+  summary_stats, 
+  caption = "Summary Statistics for Yield and Water Use Efficiency
+  by Water Management and Planting Date")
+
+# Boxplot of yield by water management and planting date
+ggplot(corn_sim_clean,
+ aes(
+  x = factor(
+    Planting_date, levels = c("Early", "Medium", "Late")),
+     y = Yield_kgha, fill = water_mgmt)) +
+  geom_boxplot() +
+  labs(title = "Grain Yield by Planting Date and Water Management",
+       x = "Planting Date",
+       y = "Grain Yield (kg/ha)",
+       fill = "Water Management") +
+  theme_minimal()
+
+
+# Boxplot of water use efficiency by water management and planting date
+ggplot(
+  corn_sim_clean, aes(
+    x = factor(Planting_date, levels = c("Early", "Medium", "Late")),
+    y = WUE, fill = water_mgmt)) +
+  geom_boxplot() +
+  labs(title = "Water Use Efficiency by Planting Date and Water Management",
+       x = "Planting Date",
+       y = "Water Use Efficiency (kg/ha per mm ET)",
+       fill = "Water Management") +
+  theme_minimal()
+
+# Compare WUE between Check and LT genotypes at Late planting date
+corn_sim_clean %>%
+  filter(Planting_date == "Late" & 
+  Crop %in% c("Maize-AR-check","Maize-AR-LT-1.2")) %>%
+  ggplot(aes(x = Crop, y = WUE, fill = Crop)) +
+  geom_boxplot() +
+  facet_wrap(~ water_mgmt) +
+  scale_x_discrete(
+    labels = c("Maize-AR-check" = "Check", "Maize-AR-LT-1.2" = "LT 1.2")) +
+  labs(title = "WUE: Check vs LT Genotypes at Late Planting Date",
+       x = "Genotype",
+       y = "Water Use Efficiency (kg/ha per mm ET)",
+       fill = "Genotype") +
+  theme_minimal()
+
+# Analyze yield differences between Check and LT genotypes in North Platte
+corn_sim_clean %>%
+  filter(
+    Crop %in% c("Maize-NE-check","Maize-NE-LT-1.8") &
+    Location %in% c("North Platte")) %>%
+  ggplot(aes(x = Crop, y = Yield_kgha, fill = Crop)) +
+  geom_boxplot() +
+  facet_wrap(~ water_mgmt) +
+  scale_x_discrete(
+    labels = c("Maize-NE-check" = "Check", "Maize-NE-LT-1.8" = "LT 1.8")) +
+  labs(title = "Yield: Check vs LT Genotypes in North Platte",
+       x = "Genotype",
+       y = "Grain Yield (kg/ha)",
+       fill = "Genotype") +
+  theme_minimal()
+
+```
+
+### 4.1) Rainfed scenarios
+
+Average yields by location.
+```{r}
+avg_yields_location <- rainfed_data %>%
+  group_by(Location) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    sd_yield = sd(Yield_kgha, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  )
+knitr::kable(avg_yields_location, caption = "Average Yields by Location (kg/ha)")  
+```
+
+Average yields by planting date.
+```{r}
+avg_yields_planting <- rainfed_data %>%
+mutate(Planting_date = factor(
+  Planting_date, levels = c("Early", "Medium", "Late"))) %>%
+  group_by(Planting_date) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    sd_yield = sd(Yield_kgha, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  )
+knitr::kable(avg_yields_planting, caption = "Average Yields by Planting Date (kg/ha)")  
+```
+
+Average yields by genotypes.
+```{r}
+avg_yields_genotypes_AR <- rainfed_data %>%
+  filter(Location %in% c("Marianna", "Jonesboro", "Stuttgart")) %>%
+  group_by(Crop) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    sd_yield = sd(Yield_kgha, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  )
+knitr::kable(avg_yields_genotypes_AR, caption = "Average Yields by Genotypes
+in Arkansas (Check vs LT) (kg/ha)") 
+
+avg_yields_genotypes_NE <- rainfed_data %>%
+  filter(Location %in% c("North Platte","Lincoln","Norfolk")) %>%
+  group_by(Crop) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    sd_yield = sd(Yield_kgha, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  )
+knitr::kable(avg_yields_genotypes_NE, caption = "Average Yields by Genotypes
+in Nebraska (Check vs LT) (kg/ha)")  
+``` 
+
+## 5) Weather data processing
+
+Process historical weather data (1990-2019) for growing season (DOY 115-250).
+Classify weather years as: Cool/Wet, Warm/Wet, Normal, Cool/Dry, Warm/Dry.
+```{r weather-data-processing}
+  # Function to process weather data for a location
+  process_weather_data <- function(file_path, location_name) {
+    read_excel(file_path, sheet = "Sheet2") %>% 
+      filter(between(DOY, 115, 250), between(YEAR, 1990, 2019)) %>%
+      mutate(MeanT = (TMAX + TMIN) / 2) %>% 
+      group_by(YEAR) %>% 
+      summarise(Rain = sum(RAIN, na.rm = TRUE),
+                Meat = mean(MeanT, na.rm = TRUE),
+                .groups = "drop") %>% 
+      mutate(
+        Rain.avg = mean(Rain),
+        Meat.avg = mean(Meat),
+        Rain.sd = sd(Rain),
+        Meat.sd = sd(Meat),
+        Normal = ifelse(Rain < Rain.avg + Rain.sd * 0.5 & Rain > Rain.avg - Rain.sd * 0.5 &
+                        Meat < Meat.avg + Meat.sd * 0.5 & Meat > Meat.avg - Meat.sd * 0.5,
+                        "Yes", "No"),
+        Rain.class = ifelse(Rain > Rain.avg, "Wet", "Dry"),
+        Meat_class = ifelse(Meat > Meat.avg, "Warm", "Cool"),
+        weather.class = factor(
+          ifelse(Normal == "Yes", "Normal", paste0(Meat_class, "/", Rain.class)),
+          levels = c("Cool/Wet", "Warm/Wet", "Normal", "Cool/Dry", "Warm/Dry")
+        ),
+        Location = location_name
+      )
+  }
+
+  # Define file paths and locations
+  weather_files <- list(
+    Jonesboro = '/Users/lucasromano/Desktop/Crop Modeling/Weather/AR-ARTJBR_Jonesboro.xlsx',
+    Stuttgart = '/Users/lucasromano/Desktop/Crop Modeling/Weather/AR-AR6920_Stuttgart.xlsx',
+    Marianna = '/Users/lucasromano/Desktop/Crop Modeling/Weather/AR-AR4638_Marianna.xlsx',
+    Lincoln = '/Users/lucasromano/Desktop/Crop Modeling/Weather/NE_Lincoln.xlsx',
+    `North Platte` = '/Users/lucasromano/Desktop/Crop Modeling/Weather/NE-NE6075_NorthPlate_Nebraska.xlsx',
+    Norfolk = '/Users/lucasromano/Desktop/Crop Modeling/Weather/NE_Norfolk.xlsx'
+  )
+
+  # Process all locations and bind together
+  RAIN_ALL <- map_df(names(weather_files), ~process_weather_data(weather_files[[.x]], .x)) 
+```
+
+## 6) Merge simulation and weather classes
+
+Join weather classification (Cool/Wet, Warm/Dry, etc.) to each year's yield data.
+```{r data-merge}
+corn_sim_classes <- left_join(x = corn_sim_clean,y = RAIN_ALL, by = c("YEAR","Location"))
+```
+
+
+## 7) Year-by-year yield advantage (LT-1.8 vs Check)
+
+```{r}
+analyze_site_lt18 <- function(site_name) {
+  site_dat <- rainfed_data %>% 
+    filter(Location == site_name)
+  
+  by_year <- site_dat %>% 
+    mutate(geno = case_when(
+      str_detect(Crop, regex("check", ignore_case = TRUE)) ~ "Check",
+      str_detect(Crop, regex("LT[-_\\.]?1\\.8|\\b1\\.8\\b", ignore_case = TRUE)) ~ "LT1.8",
+      TRUE ~ NA_character_
+    )) %>% 
+    filter(!is.na(geno), !is.na(Yield_kgha)) %>%
+    group_by(YEAR, geno) %>% 
+    summarise(yld = mean(Yield_kgha, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(
+      names_from = geno,
+      values_from = yld,
+      values_fill = list(yld = NA_real_)
+    ) %>% 
+    mutate(pct_increase = (`LT1.8` - Check) / Check * 100)
+  
+  by_year_joined <- left_join(
+    by_year,
+    RAIN_ALL %>% dplyr::select(YEAR, Location, Rain.class) %>% filter(Location == site_name),
+    by = "YEAR"
+  )
+  
+  avg_check <- mean(by_year_joined$Check, na.rm = TRUE)
+  avg_lt18  <- mean(by_year_joined$`LT1.8`, na.rm = TRUE)
+  print(paste(site_name, "mean Check yield:", round(avg_check, 2)))
+  print(paste(site_name, "mean LT1.8 yield:", round(avg_lt18, 2)))
+  
+  p <- ggplot(by_year_joined, aes(x = YEAR, y = pct_increase, colour = Rain.class)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_linerange(aes(ymin = 0, ymax = pct_increase)) +
+    geom_point(size = 2) +
+    labs(
+      title = paste0("Percentage Yield Increase of LT1.8 vs Check in ", site_name, " (Rainfed)"),
+      x = "Year",
+      y = "Yield increase (%)",
+      colour = "Rain Class"
+    ) +
+    theme_minimal(base_size = 12)
+  
+  print(p)
+  
+  output_dir <- "/Users/lucasromano/Desktop/Crop Modeling/Corn SSM/graphs, tables and diagrams"
+  file_stub <- gsub(" ", "", site_name)
+  ggsave(
+    filename = file.path(output_dir, paste0(file_stub, "_RFD_LT18_vs_Check.tiff")),
+    p,
+    width = 7,
+    height = 4,
+    dpi = 300,
+    device = "tiff"
+  )
+  
+  invisible(by_year_joined)
+}
+
+site_results <- list(
+  Norfolk = analyze_site_lt18("Norfolk"),
+  Jonesboro = analyze_site_lt18("Jonesboro"),
+  Marianna = analyze_site_lt18("Marianna"),
+  Stuttgart = analyze_site_lt18("Stuttgart"),
+  `North Platte` = analyze_site_lt18("North Platte"),
+  Lincoln = analyze_site_lt18("Lincoln")
+)
+```
+
+
+## 8) Plotting functions and utilities
+```{r plot-utilities}
+# ---- CROP LABEL MAPPING ----
+# Simplify crop names in plot labels (e.g., "Maize-AR-check" → "Check")
+crop_labels <- c(
+  "Maize-AR-check" = "Check",
+  "Maize-AR-LT-1.2" = "1.2",
+  "Maize-AR-LT-1.8" = "1.8",
+  "Maize-AR-LT-2.1" = "2.1",
+  "Maize-AR-LT-2.3" = "2.3",
+  "Maize-AR-LT-3.7" = "3.7",
+  "Maize-NE-check" = "Check",
+  "Maize-NE-LT-1.2" = "1.2",
+  "Maize-NE-LT-1.8" = "1.8",
+  "Maize-NE-LT-2.1" = "2.1",
+  "Maize-NE-LT-2.3" = "2.3",
+  "Maize-NE-LT-3.7" = "3.7"
+)
+# ---- FUNCTION: Plot yield by crop × water management ----
+# Generates bar chart with error bars (Standard Error) for a given location
+output_dir <- "/Users/lucasromano/Desktop/Crop Modeling/Corn SSM/graphs, tables and diagrams"
+
+plot_yield_summary <- function(location_data, location_name, filename) {
+  # Calculate summary statistics (mean ± SE) by crop and water management
+  summary_data <- location_data %>%
+    group_by(Crop, water_mgmt) %>%
+    summarise(
+      mean_yield = mean(Yield_kgha, na.rm = TRUE),
+      sd_yield = sd(Yield_kgha, na.rm = TRUE),
+      n = n(),
+      se_yield = sd_yield / sqrt(n),
+      .groups = "drop"
+    )
+
+  # Create visualization with grouped bars and error bars
+  p <- ggplot(summary_data, aes(x = Crop, y = mean_yield, fill = water_mgmt)) +
+    geom_col(position = position_dodge(width = 0.9)) +             # Grouped columns
+    geom_errorbar(                                                 # Standard error bars
+      aes(ymin = mean_yield - se_yield, ymax = mean_yield + se_yield),
+      position = position_dodge(width = 0.9),
+      width = 0.3
+    ) +
+    scale_x_discrete(labels = crop_labels) +                      # Use short labels
+    scale_y_continuous(limits = c(0, 15000)) +                 # Fixed y-axis range
+    labs(
+      title = paste("Yield across BP and Water Management in", location_name),
+      x = "TR Breakpoint (kPa)",
+      y = "Yield (kg/ha)"
+    ) +
+    theme_bw()
+
+  # Save and display
+  ggsave(file.path(output_dir, filename), p, width = 9, height = 6, dpi = 300, device = "tiff")
+  print(p)
+}
+
+# ---- EXAMPLE: Norfolk Yield Plot ----
+plot_yield_summary(norfolk_data, "Norfolk", "YxBPxWM_Norfolk.tiff")
+plot_yield_summary(jonesboro_data, "Jonesboro", "YxBPxWM_Jonesboro.tiff")
+plot_yield_summary(marianna_data, "Marianna", "YxBPxWM_Marianna.tiff")
+plot_yield_summary(stuttgart_data, "Stuttgart", "YxBPxWM_Stuttgart.tiff")
+plot_yield_summary(north_platte_data, "North Platte", "YxBPxWM_NorthPlatte.tiff")
+plot_yield_summary(lincoln_data, "Lincoln", "YxBPxWM_Lincoln.tiff")
+```
+
+
+## 9) Water use efficiency (WUE) analysis
+
+Analyze yield response to cumulative transpiration (CTR) for different regions.
+
+# ---- WUE: shared utilities ----
+```{r wue-setup}
+library(ggplot2)
+library(ggpmisc)
+
+build_wue_plot <- function(data, water_mode, crop_ids, plot_title, color_var = NULL) {
+  plot_data <- data %>%
+    filter(
+      water_mgmt == water_mode,
+      Crop %in% crop_ids
+    )
+
+  if (is.null(color_var)) {
+    p <- ggplot(plot_data, aes(x = CTR, y = Yield_kgha))
+  } else {
+    p <- ggplot(plot_data, aes(x = CTR, y = Yield_kgha, color = .data[[color_var]]))
+  }
+
+  p +
+    geom_point(alpha = 0.7, size = 2) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "solid", linewidth = 1.1) +
+    stat_poly_eq(
+      aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+      formula = y ~ x,
+      parse = TRUE,
+      label.x.npc = "left",
+      label.y.npc = 0.95,
+      size = 3
+    ) +
+    facet_wrap(~Crop, scales = "fixed") +
+    labs(
+      title = plot_title,
+      x = "Cumulative Transpiration (mm)",
+      y = "Grain Yield (kg ha⁻¹)"
+    ) +
+    theme_bw(base_size = 13) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "top",
+      strip.background = element_rect(fill = "grey90"),
+      strip.text = element_text(face = "bold")
+    )
+}
+
+save_wue_plot <- function(plot_obj, filename) {
+  ggsave(
+    filename = filename,
+    plot = plot_obj,
+    width = 9,
+    height = 4,
+    dpi = 300,
+    device = "tiff"
+  )
+}
+```
+
+# ---- WUE: all scenarios using one loop ----
+```{r wue-scenarios}
+wue_scenarios <- list(
+  list(
+    obj_name = "WUE_AR_Irrigated",
+    data_obj = corn_sim_clean,
+    water_mode = "Irrigated",
+    crop_ids = c("Maize-AR-check", "Maize-AR-LT-1.8"),
+    title = "Yield Response to Cumulative Transpiration in Arkansas (Irrigated)",
+    color_var = "Crop",
+    file_name = "WUE_AR_Irrigated.tiff"
+  ),
+  list(
+    obj_name = "WUE_AR_Rainfed",
+    data_obj = corn_sim_clean,
+    water_mode = "Rainfed",
+    crop_ids = c("Maize-AR-check", "Maize-AR-LT-1.8"),
+    title = "Yield Response to Cumulative Transpiration in Arkansas (Rainfed)",
+    color_var = NULL,
+    file_name = "WUE_AR_Rainfed.tiff"
+  ),
+  list(
+    obj_name = "WUE_NE_Rainfed",
+    data_obj = corn_sim_clean,
+    water_mode = "Rainfed",
+    crop_ids = c("Maize-NE-check", "Maize-NE-LT-1.8"),
+    title = "Yield Response to Cumulative Transpiration in Nebraska (Rainfed)",
+    color_var = NULL,
+    file_name = "WUE_NE_Rainfed.tiff"
+  ),
+  list(
+    obj_name = "WUE_NE_Irrigated",
+    data_obj = corn_sim_clean,
+    water_mode = "Irrigated",
+    crop_ids = c("Maize-NE-check", "Maize-NE-LT-1.8"),
+    title = "Yield Response to Cumulative Transpiration in Nebraska (Irrigated)",
+    color_var = NULL,
+    file_name = "WUE_NE_Irrigated.tiff"
+  )
+)
+
+output_dir <- "/Users/lucasromano/Desktop/Crop Modeling/Corn SSM/graphs, tables and diagrams"
+
+for (scenario in wue_scenarios) {
+  wue_plot <- build_wue_plot(
+    data = scenario$data_obj,
+    water_mode = scenario$water_mode,
+    crop_ids = scenario$crop_ids,
+    plot_title = scenario$title,
+    color_var = scenario$color_var
+  )
+
+  assign(scenario$obj_name, wue_plot)
+  save_wue_plot(wue_plot, file.path(output_dir, scenario$file_name))
+}
+```
+
+
+## 10) Yield stability analysis
+
+Compare year-to-year variability (CV) in yields for Check vs LT genotypes.
+
+```{r yield-stab-setup}
+library(dplyr)
+library(ggplot2)
+
+build_stability_data <- function(data, water_mode, g1, g2, label_map = NULL) {
+  df_year <- data %>%
+    filter(water_mgmt == water_mode, Crop %in% c(g1, g2)) %>%
+    group_by(Crop, YEAR) %>%
+    summarise(y = mean(Yield_kgha, na.rm = TRUE), .groups = "drop")
+
+  if (is.null(label_map)) {
+    df_year <- df_year %>% mutate(Crop_pretty = Crop)
+  } else {
+    df_year <- df_year %>% mutate(Crop_pretty = as.character(label_map[Crop]))
+  }
+
+  stab <- df_year %>%
+    group_by(Crop, Crop_pretty) %>%
+    summarise(
+      mean_y = mean(y),
+      sd_y = sd(y),
+      cv = 100 * sd_y / mean_y,
+      .groups = "drop"
+    )
+
+  subtxt <- stab %>%
+    mutate(lbl = sprintf("%s: mean = %.0f kg/ha, CV = %.1f%%", Crop_pretty, mean_y, cv)) %>%
+    pull(lbl) %>%
+    paste(collapse = "   |   ")
+
+  list(df_year = df_year, stab = stab, subtxt = subtxt)
+}
+
+plot_stability_basic <- function(stab_obj, title_text) {
+  ggplot(stab_obj$df_year, aes(x = YEAR, y = y, color = Crop_pretty, group = Crop_pretty)) +
+    geom_line(linewidth = 1) +
+    geom_point() +
+    geom_hline(
+      data = stab_obj$stab,
+      aes(yintercept = mean_y, color = Crop_pretty),
+      linetype = "dashed",
+      linewidth = 0.8,
+      show.legend = FALSE
+    ) +
+    labs(
+      title = title_text,
+      subtitle = stab_obj$subtxt,
+      x = "Year",
+      y = "Yield (kg/ha)",
+      color = "Genotype"
+    ) +
+    theme_bw()
+}
+
+plot_stability_poster <- function(stab_obj, title_text, palette) {
+  ggplot(
+    stab_obj$df_year,
+    aes(x = YEAR, y = y, color = Crop_pretty, group = Crop_pretty)
+  ) +
+    geom_line(linewidth = 1.4) +
+    geom_point(size = 3, stroke = 1, fill = "white", shape = 21, show.legend = FALSE) +
+    geom_hline(
+      data = stab_obj$stab,
+      aes(yintercept = mean_y, color = Crop_pretty),
+      linetype = "dashed",
+      linewidth = 1,
+      show.legend = FALSE
+    ) +
+    scale_color_manual(values = palette, name = "Genotype") +
+    scale_y_continuous(labels = function(x) format(x, big.mark = ",", scientific = FALSE)) +
+    labs(
+      title = title_text,
+      subtitle = stab_obj$subtxt,
+      x = "Year",
+      y = "Yield (kg ha⁻¹)",
+      color = "Genotype"
+    ) +
+    theme_minimal(base_size = 15, base_family = "Helvetica") +
+    theme(
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5, lineheight = 1.1,
+      margin = margin(b = 6)),
+      plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+      axis.title = element_text(size = 16, face = "bold"),
+      axis.text = element_text(size = 14),
+      axis.line.x = element_line(linewidth = 0.8, color = "black"),
+      axis.line.y = element_line(linewidth = 0.8, color = "black"),
+      panel.grid.major.y = element_line(color = "gray85", linewidth = 0.6),
+      panel.grid.minor.y = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      legend.position = "top",
+      legend.title = element_text(size = 14, face = "bold"),
+      legend.text = element_text(size = 13),
+      plot.margin = margin(15, 20, 15, 20)
+    )
+}
+
+save_stability_plot <- function(plot_obj, file_name, width, height, dpi) {
+  ggsave(
+    filename = file.path(output_dir, file_name),
+    plot = plot_obj,
+    width = width,
+    height = height,
+    dpi = dpi,
+    compression = "lzw",
+    device = "tiff"
+  )
+}
+```
+
+```{r yield-stab-scenarios}
+stability_scenarios <- list(
+  list(
+    obj_name = "Ystab_AR_rfd",
+    water_mode = "Rainfed",
+    g1 = "Maize-AR-check",
+    g2 = "Maize-AR-LT-1.8",
+    label_map = c("Maize-AR-check" = "Check", "Maize-AR-LT-1.8" = "LT 1.8"),
+    style = "poster",
+    palette = c("Check" = "#7570b3", "LT 1.8" = "#d95f02"),
+    title = "Yield stability across 30 years\nArkansas · Rainfed management",
+    file_name = "Ystab_AR_rfd_poster.tiff",
+    width = 10,
+    height = 6,
+    dpi = 600
+  ),
+  list(
+    obj_name = "Ystab_AR_irri",
+    water_mode = "Irrigated",
+    g1 = "Maize-AR-check",
+    g2 = "Maize-AR-LT-1.8",
+    label_map = NULL,
+    style = "basic",
+    palette = NULL,
+    title = "Yield stability across 30 years, in Arkansas, Irrigated",
+    file_name = "Ystab_AR_irri.tiff",
+    width = 9,
+    height = 4,
+    dpi = 300
+  ),
+  list(
+    obj_name = "Ystab_NE_rfd",
+    water_mode = "Rainfed",
+    g1 = "Maize-NE-check",
+    g2 = "Maize-NE-LT-1.8",
+    label_map = NULL,
+    style = "basic",
+    palette = NULL,
+    title = "Yield stability across 30 years, in Nebraska, Rainfed",
+    file_name = "Ystab_NE_rfd.tiff",
+    width = 9,
+    height = 4,
+    dpi = 300
+  ),
+  list(
+    obj_name = "Ystab_NE_irri",
+    water_mode = "Irrigated",
+    g1 = "Maize-NE-check",
+    g2 = "Maize-NE-LT-1.8",
+    label_map = c("Maize-NE-check" = "Check", "Maize-NE-LT-1.8" = "LT 1.8"),
+    style = "poster",
+    palette = c("Check" = "#0072B2", "LT 1.8" = "#E69F00"),
+    title = "Yield stability across 30 years\nNebraska · Irrigated management",
+    file_name = "Ystab_NE_irri_poster.tiff",
+    width = 10,
+    height = 5,
+    dpi = 600
+  )
+)
+
+for (scenario in stability_scenarios) {
+  stab_obj <- build_stability_data(
+    data = corn_sim_clean,
+    water_mode = scenario$water_mode,
+    g1 = scenario$g1,
+    g2 = scenario$g2,
+    label_map = scenario$label_map
+  )
+
+  stab_plot <- if (scenario$style == "poster") {
+    plot_stability_poster(stab_obj, scenario$title, scenario$palette)
+  } else {
+    plot_stability_basic(stab_obj, scenario$title)
+  }
+
+  assign(scenario$obj_name, stab_plot)
+  save_stability_plot(
+    plot_obj = stab_plot,
+    file_name = scenario$file_name,
+    width = scenario$width,
+    height = scenario$height,
+    dpi = scenario$dpi
+  )
+
+  print(stab_plot)
+}
+```
+
