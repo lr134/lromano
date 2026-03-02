@@ -306,20 +306,17 @@ corn_sim_classes <- left_join(x = corn_sim_clean,y = RAIN_ALL, by = c("YEAR","Lo
 emit_figure <- function(plot_obj,
                         caption,
                         save_path = NULL,
-                        width = 9,
-                        height = 4,
+                        width = 10,
+                        height = 6,
                         dpi = 300,
                         device = "tiff") {
-  old_cap <- knitr::opts_current$get("fig.cap")
-  on.exit(knitr::opts_current$set(fig.cap = old_cap), add = TRUE)
-
-  knitr::opts_current$set(fig.cap = caption)
-  print(plot_obj)
+  plot_with_caption <- plot_obj + labs(caption = caption)
+  print(plot_with_caption)
 
   if (!is.null(save_path)) {
     ggsave(
       filename = save_path,
-      plot = plot_obj,
+      plot = plot_with_caption,
       width = width,
       height = height,
       dpi = dpi,
@@ -331,7 +328,7 @@ emit_figure <- function(plot_obj,
 
 ## 7) Year-by-year yield advantage (LT-1.8 vs Check)
 
-```{r}
+```{r section7-yield-advantage, fig.width=12, fig.height=7, out.width='100%'}
 analyze_site_lt18 <- function(site_name) {
   site_dat <- rainfed_data %>% 
     filter(Location == site_name)
@@ -368,7 +365,10 @@ analyze_site_lt18 <- function(site_name) {
     geom_linerange(aes(ymin = 0, ymax = pct_increase)) +
     geom_point(size = 2) +
     labs(
-      title = paste0("Percentage Yield Increase of LT1.8 vs Check in ", site_name, " (Rainfed)"),
+      title = str_wrap(
+        paste0("% Yield Increase of LT1.8 vs Check in ", site_name, " (Rainfed)"),
+        width = 70
+      ),
       x = "Year",
       y = "Yield increase (%)",
       colour = "Rain Class"
@@ -388,9 +388,9 @@ analyze_site_lt18 <- function(site_name) {
     plot_obj = p,
     caption = paste0(site_name, ": LT-1.8 vs Check (% yield increase by year, rain class)"),
     save_path = file.path(output_dir, paste0(file_stub, "_RFD_LT18_vs_Check.tiff")),
-    width = 7,
-    height = 4,
-    dpi = 300,
+    width = 10,
+    height = 6,
+    dpi = 600,
     device = "tiff"
   )
   
@@ -458,13 +458,13 @@ plot_yield_summary <- function(location_data, location_name, filename) {
       y = "Yield (kg/ha)"
     ) +
     theme_bw()
-
-  # Save and display
-  emit_figure(
+  
+  # Save the plot to a file
+emit_figure(
     plot_obj = p,
-    caption = paste("Yield across BP and Water Management in", location_name),
+    caption = paste(location_name, ": Yield by Crop and Water Management"),
     save_path = file.path(output_dir, filename),
-    width = 9,
+    width = 10,
     height = 6,
     dpi = 300,
     device = "tiff"
@@ -529,11 +529,12 @@ build_wue_plot <- function(data, water_mode, crop_ids, plot_title, color_var = N
 }
 
 save_wue_plot <- function(plot_obj, filename) {
-  ggsave(
-    filename = filename,
-    plot = plot_obj,
-    width = 9,
-    height = 4,
+  emit_figure(
+    plot_obj = plot_obj,
+    caption = filename,
+    save_path = filename,
+    width = 10,
+    height = 6,
     dpi = 300,
     device = "tiff"
   )
@@ -541,7 +542,7 @@ save_wue_plot <- function(plot_obj, filename) {
 ```
 
 # ---- WUE: all scenarios using one loop ----
-```{r wue-scenarios, fig.width=9, fig.height=4, dpi=300}
+```{r wue-scenarios, fig.width=10, fig.height=6, dpi=300}
 wue_scenarios <- list(
   list(
     obj_name = "WUE_AR_Irrigated",
@@ -595,9 +596,6 @@ for (scenario in wue_scenarios) {
   save_wue_plot(wue_plot, file.path(output_dir, scenario$file_name))
   print(wue_plot)
 }
-
-# Reset caption option after loop
-knitr::opts_current$set(fig.cap = NULL)
 ```
 
 
