@@ -802,4 +802,45 @@ for (scenario in stability_scenarios) {
 ```
 
 
+## 11) Yield differences between Check and LT genotypes. Pending..
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
 
+x <- corn_sim_clean %>%
+  filter(
+    Crop %in% c("Maize-NE-check","Maize-NE-LT-1.2") &
+    Location %in% c("North Platte") &
+    water_mgmt == "Rainfed"
+  ) %>%
+  group_by(Crop, YEAR) %>%
+  summarise(
+    mean_yield = mean(Yield_kgha, na.rm = TRUE),
+    .groups = "drop"
+  )  %>% 
+  pivot_wider(names_from = Crop, values_from = mean_yield) %>%
+  mutate(control_yield = `Maize-NE-check`,
+         lt12_yield = `Maize-NE-LT-1.2`,
+         yield_diff = (lt12_yield - control_yield) / control_yield * 100)
+
+library(ggplot2)
+
+ggplot(x, aes(x = cut(control_yield, breaks = seq(5000, 16000, by = 600)), y = yield_diff)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  scale_x_discrete(labels = seq(5250, 14750, by = 1000)) +
+  labs(x = "Yield of control (kg/ha)", 
+       y = "Yield difference (%)") +
+  theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.ticks.length = unit(-0.2, "cm"),
+        axis.title = element_text(size = 14))
+```
+
+
+## 12) Statistical analysis: Fixed effects model for yield response to genotype, environment and management. 
+
+```{r}
+  
+``` 
